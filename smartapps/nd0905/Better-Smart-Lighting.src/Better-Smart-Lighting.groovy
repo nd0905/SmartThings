@@ -23,7 +23,7 @@
  *
  */
 definition(
-    name: "Arrival/Departure/Auto-lights",
+    name: "better-smart-lighting",
     namespace: "nd0905",
     author: "Nick Davidson",
     description: "Turns on and off switches based on proximity sensors and timers",
