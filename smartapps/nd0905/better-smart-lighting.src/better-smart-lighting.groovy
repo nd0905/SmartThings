@@ -52,10 +52,12 @@ preferences {
 }
 
 def installed() {
+	log.debug "Installed with settings: ${settings}"
 	initialize()
 }
 
 def updated() {
+	log.debug "Updated with settings: ${settings}"
 	unsubscribe()
 	initialize()
 }
@@ -64,26 +66,37 @@ def initialize() {
     subscribe(people, "presence", arrivalHandler)
     subscribe(motion1, "motion", motionHandler)
     subscribe(switches, "switch", timedOff)
+    state.status = null
 }
 
 def timedOff(evt) {
+	log.debug "$evt.name: $evt.value"
 	if( evt.value == "on" && force == "true") {
-    	switches.on()
-        if ( neverTime == "true" ) { switches.off([delay: 1000 * 60 * minutesLater]) }
-    }
-}
-
-def arrivalHandler(evt) {
-	def now = new Date()
-	def sunTime = getSunriseAndSunset();
-	if( evt.value == "not present" && everyoneIsAway()) {
-		switches.off()
-    } else if( evt.value == "present" && (now > sunTime.sunset) ) {
         for ( swich in switches ) {
         	if ( swich.currentValue("switch") == "off" ){
         		swich.on()
         		if ( neverTime == "true" ) { swich.off([delay: 1000 * 60 * minutesLater]) }
             }
+        }
+    }
+}
+
+def arrivalHandler(evt) {
+	log.debug "$evt.name: $evt.value"
+	def now = new Date()
+	def sunTime = getSunriseAndSunset();
+	if( evt.value == "not present" && everyoneIsAway()) {
+		switches.off()
+        unschedule()
+        state.status = null
+    } else if( evt.value == "present" /*&& (now > sunTime.sunset)*/ ) {
+    	log.debug "turning on lights: current State is $state.status"
+    	if ( state.status != "pending" ) { saveState() }
+        switches.on()
+        if ( neverTime == "true" ) { 
+        	log.debug "running in $minutesLater"
+        	runIn(60 * minutesLater, restoreState)
+            state.status = "pending"
         }
 	}
 }
@@ -92,20 +105,21 @@ def motionHandler(evt) {
 	log.debug "$evt.name: $evt.value"
 	def now = new Date()
 	def sunTime = getSunriseAndSunset();
-	if (evt.value == "active" && (now > sunTime.sunset)) {
-		log.debug "turning on lights"
-		for ( swich in switches ) {
-        	if ( swich.currentValue("switch") == "off" ){
-        		swich.on()
-                if ( neverTime == "true" ) { swich.off([delay: 1000 * 60 * minutesLater]) }
-            }
+	if (evt.value == "active" /*&& (now > sunTime.sunset)*/) {
+		log.debug "turning on lights: current State is $state.status"
+		if (state.status != "pending" ) {saveState()}
+        switches.on()  
+	}
+    else if (evt.value == "inactive" /*&& (now > sunTime.sunset)*/) {
+		if ( neverTime == "true" ) { 
+        	runIn(60 * minutesLater, scheduleCheck) 
+            state.status = "pending"
         }
-	} else if (evt.value == "inactive" /*&& (now > sunTime.sunset)*/) {
-    	
     }
 }
 
 private everyoneIsAway() {
+	log.debug "everyone is away"
 	def result = true
 	for (person in people) {
 		if (person.currentPresence == "present") {
@@ -115,4 +129,59 @@ private everyoneIsAway() {
 	}
 	log.debug "everyoneIsAway: $result"
 	return result
+}
+
+private saveState()
+{
+	def hold = "cur"
+	def map = state[hold] ?: [:]
+
+	switches?.each {
+		map[it.id] = [switch: it.currentSwitch, level: it.currentLevel]
+	}
+
+	state[hold] = map
+	log.debug "saved state for ${hold}: ${state[hold]}"
+	log.debug "state: $state"
+}
+
+def restoreState()
+{
+	def hold = "cur"
+	def map = state[hold] ?: [:]
+    log.debug "Restoring state: $state"
+	switches?.each {
+		def value = map[it.id]
+		if (value?.switch == "on") {
+			def level = value.level
+			if (level) {
+				log.debug "setting $it.label level to $level"
+				it.setLevel(level)
+			}
+			else {
+				log.debug "turning $it.label on"
+				it.on()
+			}
+		}
+		else if (value?.switch == "off") {
+			log.debug "turning $it.label off"
+			it.off()
+		}
+	}
+    state.status = null
+}
+
+def scheduleCheck() {
+	log.debug "schedule check"
+	def motionState = motion1.currentState("motion")
+    log.debug "current motion state is: $motionState.value"
+    def elapsed = now() - motionState.rawDateCreated.time
+   	def threshold = 1000 * 60 * minutesLater - 1000
+    if (elapsed >= threshold) {
+        log.debug "Motion has stayed inactive long enough since last check ($elapsed ms):  turning lights off"
+        restoreState()
+    } else {
+    	log.debug "Motion has not stayed inactive long enough since last check ($elapsed ms):  doing resetting check"
+        if (state.status == "pending" ) { runIn(60*minutesLater,scheduleCheck) }
+    }
 }
