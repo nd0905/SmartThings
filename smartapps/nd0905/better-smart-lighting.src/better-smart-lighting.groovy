@@ -89,7 +89,7 @@ def arrivalHandler(evt) {
 		switches.off()
         unschedule()
         state.status = null
-    } else if( evt.value == "present" /*&& (now > sunTime.sunset)*/ ) {
+    } else if( evt.value == "present" && (now > sunTime.sunset) ) {
     	log.debug "turning on lights: current State is $state.status"
     	if ( state.status != "pending" ) { saveState() }
         switches.on()
@@ -105,12 +105,12 @@ def motionHandler(evt) {
 	log.debug "$evt.name: $evt.value"
 	def now = new Date()
 	def sunTime = getSunriseAndSunset();
-	if (evt.value == "active" /*&& (now > sunTime.sunset)*/) {
+	if (evt.value == "active" && (now > sunTime.sunset)) {
 		log.debug "turning on lights: current State is $state.status"
 		if (state.status != "pending" ) {saveState()}
         switches.on()  
 	}
-    else if (evt.value == "inactive" /*&& (now > sunTime.sunset)*/) {
+    else if (evt.value == "inactive" && (now > sunTime.sunset)) {
 		if ( neverTime == "true" ) { 
         	runIn(60 * minutesLater, scheduleCheck) 
             state.status = "pending"
